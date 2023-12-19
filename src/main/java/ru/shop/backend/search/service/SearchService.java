@@ -27,66 +27,74 @@ public class SearchService {
     private static Pattern pattern = Pattern.compile("\\d+");
 
     public static boolean isNumeric(String strNum) {
-        if (strNum == null) {
-            return false;
-        }
-        return pattern.matcher(strNum).matches();
+        return strNum != null && pattern.matcher(strNum).matches();
     }
-    public synchronized SearchResult getSearchResult(Integer regionId, String text){
+    public synchronized SearchResult getSearchResult(Integer regionId, String text) {
+        List<CatalogueElastic> result = getResultList(regionId, text);
+
+        List<Item> items = repoDb.findByIds(regionId,
+                        result.stream()
+                                .flatMap(category -> category.getItems().stream())
+                                .map(item -> item.getItemId()).collect(Collectors.toList())
+                ).stream()
+                .map(arr -> new Item(((BigInteger) arr[2]).intValue(), arr[1].toString(), arr[3].toString(),
+                        arr[4].toString(), ((BigInteger) arr[0]).intValue(), arr[5].toString()))
+                .collect(Collectors.toList());
+
+        Set<String> catUrls = new HashSet<>();
+        String brand = getBrand(result);
+        List<Category> categories = getCategoryList(items, catUrls, brand);
+
+        return new SearchResult(
+                items,
+                categories,
+                result.size() > 0 ? (List.of(new TypeHelpText(TypeOfQuery.SEE_ALSO,
+                        ((result.get(0).getItems().get(0).getType() != null ? result.get(0).getItems().get(0).getType() : "") +
+                                " " + (result.get(0).getBrand() != null ? result.get(0).getBrand() : "")).trim())))
+                        : new ArrayList<>()
+        );
+    }
+    private List<CatalogueElastic> getResultList(Integer regionId, String text) {
         List<CatalogueElastic> result = null;
+
         if (isNumeric(text)) {
             Integer itemId = repoDb.findBySku(text).stream().findFirst().orElse(null);
+
             if (itemId == null) {
                 var catalogue = getByName(text);
                 if (catalogue.size() > 0) {
                     result = catalogue;
                 }
             }
+
             try {
                 result = getByItemId(itemId.toString());
             } catch (Exception e) {
             }
         }
-        if(result == null) {
+
+        if (result == null) {
             result = getAll(text);
         }
-        List<Item> items = repoDb.findByIds(regionId,
-                    result.stream()
-                            .flatMap(category -> category.getItems().stream())
-                            .map(item -> item.getItemId()) .collect(Collectors.toList())
-                            ).stream()
-                .map(arr -> new Item(((BigInteger) arr[2]).intValue(),arr[1].toString(),arr[3].toString(),arr[4].toString(),((BigInteger) arr[0]).intValue() , arr[5].toString()))
-                            .collect(Collectors.toList());
-        Set<String> catUrls = new HashSet();
-        String brand = null;
-        if(!result.isEmpty())
-            brand = result.get(0).getBrand();
-        if(brand == null){
-            brand = "";
-        }
-        brand = brand.toLowerCase(Locale.ROOT);
-        String finalBrand = brand;
-        List<Category> categories = repoDb.findCatsByIds(items.stream().map(i-> i.getItemId()).collect(Collectors.toList())).stream()
-                .map(arr ->
-                {
-                    if(catUrls.contains(arr[2].toString()))
+
+        return result;
+    }
+    private String getBrand(List<CatalogueElastic> result) {
+        String brand = result.isEmpty() ? "" : result.get(0).getBrand();
+        return brand != null ? brand.toLowerCase(Locale.ROOT) : "";
+    }
+    private List<Category> getCategoryList(List<Item> items, Set<String> catUrls, String brand) {
+        return repoDb.findCatsByIds(items.stream().map(i -> i.getItemId()).collect(Collectors.toList())).stream()
+                .map(arr -> {
+                    if (catUrls.contains(arr[2].toString()))
                         return null;
                     catUrls.add(arr[2].toString());
-                    return
-                            new Category(arr[0].toString()
-                                    , arr[1].toString()
-                                    , "/cat/" + arr[2].toString() + (finalBrand.isEmpty()?"":"/brands/"+ finalBrand)
-                                    , "/cat/" + arr[3].toString(), arr[4] == null ? null : arr[4].toString());
+                    return new Category(arr[0].toString(), arr[1].toString(),
+                            "/cat/" + arr[2].toString() + (brand.isEmpty() ? "" : "/brands/" + brand),
+                            "/cat/" + arr[3].toString(), arr[4] == null ? null : arr[4].toString());
                 })
-                .filter(x -> x != null)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
-        return new SearchResult(
-                items,
-                categories,
-                result.size()>0?(List.of(new TypeHelpText(TypeOfQuery.SEE_ALSO,
-                        ((result.get(0).getItems().get(0).getType()!=null?result.get(0).getItems().get(0).getType():"") +
-                        " " + (result.get(0).getBrand()!=null?result.get(0).getBrand():"")).trim()))):new ArrayList<>()
-        );
     }
     public synchronized List<CatalogueElastic> getAll(String text){
         return getAll(text, pageableSmall);
