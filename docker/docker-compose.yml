@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  postgres:
+    container_name: postgres
+    image: postgres:16.0
+    restart: on-failure
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: javahome
+      POSTGRES_USER: javahome
+      POSTGRES_PASSWORD: javahome
+      config.support_escapes: true
+    volumes:
+      - ./pg_data:/var/lib/postgresql/data
+      - ./dump:/docker-entrypoint-initdb.d
+    networks:
+      - spring-cloud-network
+
+  odfe-node:
+    image: elasticsearch:7.10.1
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1000m"
+        max-file: "10"
+    container_name: odfe-node
+    environment:
+      - discovery.type=single-node
+      - node.name=odfe-node
+      - discovery.seed_hosts=odfe-node
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms4096m -Xmx4096m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    networks:
+      - spring-cloud-network
+
+  kibana:
+    image: kibana:7.10.1
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    container_name: odfe-kibana
+    ports:
+      - "5601:5601"
+    expose:
+      - "5601"
+    environment:
+      ELASTICSEARCH_URL: http://odfe-node:9200
+      ELASTICSEARCH_HOSTS: http://odfe-node:9200
+    networks:
+      - spring-cloud-network
+
+networks:
+  spring-cloud-network:
+    driver: bridge
+
+volumes:
+  odfe-data:
+  db:
+  logstash:
